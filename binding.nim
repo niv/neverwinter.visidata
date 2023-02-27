@@ -1,8 +1,9 @@
-import std/[streams, sets, strutils, sequtils, options, os, tables]
+import std/[streams, sets, strutils, sequtils, options, os, tables, uri]
+import std/[asyncdispatch, asyncnet, nativesockets, json, jsonutils]
 
 import neverwinter/[tlk, erf, key, gff, twoda, nwsync, ssf]
 import neverwinter/nwscript/nwasm
-import neverwinter/[resref, resman, compressedbuf]
+import neverwinter/[resref, resman, compressedbuf, game]
 
 import nimpy
 
@@ -25,6 +26,10 @@ proc decompressBuf*(data: seq[byte], magic: string): seq[byte] {.exportpy.} =
 
 proc compressBuf*(data: seq[byte], magic: string): seq[byte] {.exportpy.} =
   toBytes compress(toStr(data), Algorithm.Zstd, makeMagic(magic))
+
+proc findUserRoot*(): string {.exportpy.} = game.findUserRoot()
+
+proc findNwnRoot*(): string {.exportpy.} = game.findNwnRoot()
 
 # =======
 # Key
