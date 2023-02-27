@@ -20,6 +20,8 @@ This adds support to [VisiData](https://visidata.org) for the following Neverwin
 - Clone this repository into `~/.visidata/plugins/neverwinter`
 - Build bindings locally (do this every time you update the plugin code):
     - `nimble build -d:release`
+- Install python-side dependencies:
+   - `pip3 install -r requirements.txt`
 - Add this line to `~/.visidata/plugins/__init__.py`:
     - `import plugins.neverwinter`
 

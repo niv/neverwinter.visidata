@@ -3,10 +3,44 @@ from . import binding as nwn
 from .res import *
 
 import requests
+import requests_cache
+from datetime import timedelta
+from urllib.parse import urlparse
+import re
 
 @VisiData.api
 def open_nwsyncmanifest(vd, p):
   return NWSyncManifestSheet(p.name, source=p)
+
+def _create_key(request: requests.PreparedRequest, **kwargs) -> str:
+  # Attempt to match out the hash of the data file
+  fragments = urlparse(request.url).path.split("/")
+  # data sha1 AA BB AABBCCDD..
+  # manifests AABBCCDD..
+  if ((len(fragments) >= 5 and fragments[-5] == "data" and fragments[-4] == "sha1") or
+      (len(fragments) >= 2 and fragments[-2] == "manifests")):
+    file = fragments[-1]
+    if re.fullmatch("^[a-z0-9]+$", file):
+      return file
+  return requests_cache.cache_keys.create_key(request, **kwargs)
+
+_http_cache = requests_cache.CachedSession(
+  nwn.findUserRoot() + '/visidata_http_cache.sqlite3',
+  key_fn=_create_key,
+  cache_control=False,
+  backend='sqlite',
+  urls_expire_after = {
+    # currently not caching these too long, still seems wasteful
+    '*/data/sha1/??/??/*': timedelta(days=3),
+    '*/manifests/*': timedelta(weeks=4),
+    '*': requests_cache.DO_NOT_CACHE
+  }
+)
+
+vd.addGlobals({
+  # only way i could find to expose this to expr columns
+  "nwsync_http_cache": _http_cache
+})
 
 class NWSyncManifestSheet(NwnResTable):
   columns = [
@@ -24,7 +58,7 @@ class NWSyncManifestSheet(NwnResTable):
       parsed = urlparse(self.source.given)
       basePath = parsed.path[0: parsed.path.rfind("/manifests/")]
       self.baseUrl = parsed._replace(path=basePath).geturl()
-      response = requests.get(self.source.given, **vd.options.getall('http_req_'))
+      response = _http_cache.get(self.source.given, **vd.options.getall('http_req_'))
       response.raise_for_status()
       self.manifest = nwn.readManifest(response.content)
     else:
@@ -43,7 +77,7 @@ class NWSyncManifestSheet(NwnResTable):
     dataPath = "data/sha1/" + sha[0:2] + "/" + sha[2:4] + "/" + sha
     if self.baseUrl != "":
       dataUrl = self.baseUrl + "/" + dataPath
-      response = requests.get(dataUrl, **vd.options.getall('http_req_'))
+      response = _http_cache.get(dataUrl, **vd.options.getall('http_req_'))
       response.raise_for_status()
       content = response.content
     else:
@@ -63,6 +97,7 @@ class NWSyncSwarmSheet(Sheet):
   columns = [
     ItemColumn("host", 0),
     ItemColumn("sha1", 1),
+    ExprColumn("cached", 'nwsync_http_cache.cache.contains(sha1)'),
     ItemColumn("servers", 2),
   ]
 
@@ -77,7 +112,7 @@ class NWSyncSwarmSheet(Sheet):
 
   def iterload(self):
     self.setKeys([self.columns[0], self.columns[1]])
-    response = requests.get("https://api.nwn.beamdog.net/v1/servers", **vd.options.getall('http_req_'))
+    response = _http_cache.get("https://api.nwn.beamdog.net/v1/servers", **vd.options.getall('http_req_'))
     response.raise_for_status()
     servers = []
     for server in response.json():
